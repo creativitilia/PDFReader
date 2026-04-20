@@ -1,47 +1,61 @@
 import Foundation
 
-// MARK: - API Models
+// MARK: - API Response Models
 
-struct DictionaryResponse: Decodable {
+struct WiktionaryResponse: Decodable {
     let word: String
-    let meanings: [Meaning]
-    let phonetics: [Phonetic]
-
-    var primaryPhonetic: String? {
-        phonetics.first(where: { $0.text != nil })?.text
-    }
+    let entries: [WiktionaryEntry]
+    let source: WiktionarySource?
 }
 
-struct Phonetic: Decodable {
+struct WiktionaryEntry: Decodable {
+    let language: WiktionaryLanguage
+    let partOfSpeech: String
+    let pronunciations: [WiktionaryPronunciation]?
+    let senses: [WiktionarySense]
+    let synonyms: [String]?
+}
+
+struct WiktionaryLanguage: Decodable {
+    let code: String
+    let name: String
+}
+
+struct WiktionaryPronunciation: Decodable {
+    let type: String?
     let text: String?
 }
 
-struct Meaning: Decodable {
-    let partOfSpeech: String
-    let definitions: [Definition]
-    let synonyms: [String]
-
-    var primaryDefinition: Definition? { definitions.first }
-
-    var allSynonyms: [String] {
-        let fromDefinitions = definitions.flatMap { $0.synonyms }
-        return Array(Set(synonyms + fromDefinitions)).sorted().prefix(8).map { $0 }
-    }
+struct WiktionarySense: Decodable {
+    let definition: String
+    let examples: [String]?
+    let synonyms: [String]?
 }
 
-struct Definition: Decodable {
+struct WiktionarySource: Decodable {
+    let url: String?
+}
+
+// MARK: - App-level models (used by UI)
+
+struct DictionaryResponse {
+    let word: String
+    let meanings: [Meaning]
+    let primaryPhonetic: String?
+}
+
+struct Meaning {
+    let partOfSpeech: String
+    let definitions: [Definition]
+    let allSynonyms: [String]
+
+    var primaryDefinition: Definition? { definitions.first }
+}
+
+struct Definition {
     let definition: String
     let example: String?
     let synonyms: [String]
-}
-
-// MARK: - Supported languages
-
-enum DictionaryLanguage: String {
-    case english = "en"
-    case french  = "fr"
-
-    var apiCode: String { rawValue }
 }
 
 // MARK: - Errors
@@ -72,37 +86,26 @@ enum DictionaryError: LocalizedError {
 
 struct DictionaryService {
 
-    private static let baseURL = "https://api.dictionaryapi.dev/api/v2/entries/"
+    private static let baseURL = "https://freedictionaryapi.com/api/v1/entries"
 
-    /// Looks up a word by trying English first, then French.
-    /// Returns the first successful result, or throws if both fail.
+    /// Looks up a word. Tries English first, then French.
     static func define(word: String) async throws -> DictionaryResponse {
-        let cleaned = word
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .components(separatedBy: .punctuationCharacters)
-            .joined()
-            .lowercased()
-
+        let cleaned = cleanWord(word)
         guard !cleaned.isEmpty else {
             throw DictionaryError.wordNotFound
         }
 
-        // Try English, then French
-        let languagesToTry: [DictionaryLanguage] = [.english, .french]
-
         var lastError: DictionaryError = .wordNotFound
 
-        for language in languagesToTry {
+        for langCode in ["en", "fr"] {
             do {
-                let result = try await fetch(word: cleaned, language: language)
+                let result = try await fetch(word: cleaned, langCode: langCode)
                 return result
             } catch let error as DictionaryError {
                 switch error {
                 case .noInternet:
-                    // No point trying the next language
                     throw error
                 case .wordNotFound, .unknown:
-                    // Try the next language
                     lastError = error
                 }
             }
@@ -111,34 +114,36 @@ struct DictionaryService {
         throw lastError
     }
 
-    // MARK: - Private
+    // MARK: - Fetch
 
-    private static func fetch(
-        word: String,
-        language: DictionaryLanguage
-    ) async throws -> DictionaryResponse {
+    private static func fetch(word: String, langCode: String) async throws -> DictionaryResponse {
+        // URLComponents handles accented characters (é, è, à, ç, etc.) correctly
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "freedictionaryapi.com"
+        components.path = "/api/v1/entries/\(langCode)/\(word)"
 
-        guard
-            let encoded = word.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-            let url = URL(string: baseURL + language.apiCode + "/" + encoded)
-        else {
+        guard let url = components.url else {
             throw DictionaryError.wordNotFound
         }
 
         do {
             let (data, response) = try await URLSession.shared.data(from: url)
 
-            if let http = response as? HTTPURLResponse, http.statusCode == 404 {
+            guard let http = response as? HTTPURLResponse else {
                 throw DictionaryError.wordNotFound
             }
 
-            let decoded = try JSONDecoder().decode([DictionaryResponse].self, from: data)
-
-            guard let first = decoded.first else {
+            if http.statusCode == 404 || http.statusCode == 400 {
                 throw DictionaryError.wordNotFound
             }
 
-            return first
+            if http.statusCode == 429 {
+                throw DictionaryError.unknown("Rate limit reached. Try again in a moment.")
+            }
+
+            let raw = try JSONDecoder().decode(WiktionaryResponse.self, from: data)
+            return convert(raw)
 
         } catch let error as DictionaryError {
             throw error
@@ -152,4 +157,77 @@ struct DictionaryService {
             throw DictionaryError.wordNotFound
         }
     }
+
+    // MARK: - Convert API response → app model
+
+    private static func convert(_ raw: WiktionaryResponse) -> DictionaryResponse {
+        // Primary phonetic from first entry that has one
+        let phonetic = raw.entries
+            .compactMap { $0.pronunciations }
+            .flatMap { $0 }
+            .first(where: { $0.text != nil && !(($0.text ?? "").isEmpty) })?
+            .text
+
+        // Group entries by partOfSpeech into Meaning objects
+        let meanings: [Meaning] = raw.entries.map { entry in
+            let definitions = entry.senses.map { sense in
+                Definition(
+                    definition: sense.definition,
+                    example: sense.examples?.first,
+                    synonyms: sense.synonyms ?? []
+                )
+            }
+
+            // Collect synonyms from both entry level and sense level
+            let senseSynonyms = entry.senses.flatMap { $0.synonyms ?? [] }
+            let entrySynonyms = entry.synonyms ?? []
+            let allSyns = Array(Set(senseSynonyms + entrySynonyms))
+                .sorted()
+                .prefix(8)
+                .map { $0 }
+
+            return Meaning(
+                partOfSpeech: entry.partOfSpeech,
+                definitions: definitions,
+                allSynonyms: allSyns
+            )
+        }
+
+        return DictionaryResponse(
+            word: raw.word,
+            meanings: meanings,
+            primaryPhonetic: phonetic
+        )
+    }
+
+    // MARK: - Word cleaning
+
+    private static func cleanWord(_ raw: String) -> String {
+        let unicodeSpaces = CharacterSet(charactersIn:
+            "\u{00A0}\u{202F}\u{2009}\u{200B}\u{FEFF}\u{2060}"
+        )
+        let allWhitespace = CharacterSet.whitespacesAndNewlines.union(unicodeSpaces)
+
+        var result = raw.trimmingCharacters(in: allWhitespace)
+
+        result = result.unicodeScalars
+            .filter { !allWhitespace.contains($0) }
+            .map { String($0) }
+            .joined()
+
+        result = result.components(separatedBy: .punctuationCharacters).joined()
+        result = result.lowercased()
+
+        return result
+    }
+}
+
+// MARK: - Identifiable conformances for SwiftUI
+
+extension Meaning: Identifiable {
+    var id: String { partOfSpeech }
+}
+
+extension Definition: Identifiable {
+    var id: String { definition }
 }

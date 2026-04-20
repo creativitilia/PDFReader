@@ -7,17 +7,35 @@ struct SelectionMenuView: View {
     let onDefine: (() -> Void)?
     let onDismiss: () -> Void
 
-    /// True when the selection looks like a single word.
+    /// Cleans the selected text the same way DictionaryService does.
+    private var cleanedWord: String {
+        selectedText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .whitespaces)
+            .joined()
+            // Remove all Unicode whitespace variants including non-breaking space \u{00A0}
+            .components(separatedBy: CharacterSet.whitespacesAndNewlines.union(.init(charactersIn: "\u{00A0}\u{202F}\u{2009}\u{200B}")))
+            .joined()
+    }
+
+    /// True when the selection is a single word (no whitespace of any kind).
     private var isSingleWord: Bool {
+        guard !cleanedWord.isEmpty else { return false }
+        // Check original trimmed text for any whitespace
         let trimmed = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmed.isEmpty &&
-               !trimmed.contains(" ") &&
-               !trimmed.contains("\n")
+        let hasSpace = trimmed.unicodeScalars.contains {
+            CharacterSet.whitespaces.contains($0) ||
+            CharacterSet.newlines.contains($0) ||
+            $0 == "\u{00A0}" || // non-breaking space
+            $0 == "\u{202F}" || // narrow no-break space
+            $0 == "\u{2009}" || // thin space
+            $0 == "\u{200B}"    // zero-width space
+        }
+        return !hasSpace
     }
 
     var body: some View {
         HStack(spacing: 0) {
-            // Color swatches
             ForEach(HighlightColor.allCases, id: \.self) { color in
                 Button {
                     onColorSelected(color)
@@ -35,7 +53,6 @@ struct SelectionMenuView: View {
                 .padding(.vertical, 10)
             }
 
-            // Define button — only for single words
             if isSingleWord, let onDefine {
                 Divider()
                     .frame(height: 24)
@@ -66,7 +83,7 @@ struct SelectionMenuView: View {
     }
 }
 
-// MARK: - HighlightEditMenuView (unchanged, kept here for file cohesion)
+// MARK: - HighlightEditMenuView
 
 struct HighlightEditMenuView: View {
 
