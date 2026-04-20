@@ -5,10 +5,10 @@ import UniformTypeIdentifiers
 struct LibraryView: View {
 
     @Environment(\.modelContext) private var context
-    @Query private var allDocuments: [Document]
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var viewModel = LibraryViewModel()
-    @State private var selectedDocument: Document? = nil
+    @State private var allDocuments: [Document] = []
     @State private var hasAppeared = false
 
     private let gridColumns = [
@@ -30,9 +30,6 @@ struct LibraryView: View {
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $viewModel.searchText, prompt: "Search documents")
         .toolbar { toolbarItems }
-        .navigationDestination(item: $selectedDocument) { doc in
-            ReaderView(document: doc)
-        }
         .fileImporter(
             isPresented: $viewModel.showImporter,
             allowedContentTypes: [.pdf],
@@ -40,6 +37,7 @@ struct LibraryView: View {
         ) { result in
             if case .success(let urls) = result, let url = urls.first {
                 viewModel.importPDF(from: url, context: context)
+                reloadDocuments()
             }
         }
         .alert("Rename", isPresented: Binding(
@@ -47,7 +45,10 @@ struct LibraryView: View {
             set: { if !$0 { viewModel.renamingDocument = nil } }
         )) {
             TextField("Document title", text: $viewModel.renameText)
-            Button("Save") { viewModel.commitRename(context: context) }
+            Button("Save") {
+                viewModel.commitRename(context: context)
+                reloadDocuments()
+            }
             Button("Cancel", role: .cancel) { viewModel.renamingDocument = nil }
         }
         .alert("Error", isPresented: Binding(
@@ -59,46 +60,48 @@ struct LibraryView: View {
             Text(viewModel.errorMessage ?? "")
         }
         .onAppear {
+            reloadDocuments()
             withAnimation(AppAnimation.smooth.delay(0.05)) {
                 hasAppeared = true
             }
         }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                reloadDocuments()
+            }
+        }
     }
-
-    // MARK: - Grid
 
     private func gridView(_ documents: [Document]) -> some View {
         ScrollView {
             LazyVGrid(columns: gridColumns, spacing: Spacing.lg) {
                 ForEach(Array(documents.enumerated()), id: \.element.id) { index, doc in
-                    DocumentCard(document: doc)
-                        .opacity(hasAppeared ? 1 : 0)
-                        .offset(y: hasAppeared ? 0 : 12)
-                        .animation(
-                            AppAnimation.smooth.delay(Double(index) * 0.04),
-                            value: hasAppeared
-                        )
-                        .onTapGesture { selectedDocument = doc }
-                        .contextMenu { contextMenu(for: doc) }
+                    NavigationLink(destination: ReaderView(document: doc)) {
+                        DocumentCard(document: doc)
+                            .opacity(hasAppeared ? 1 : 0)
+                            .offset(y: hasAppeared ? 0 : 12)
+                            .animation(
+                                AppAnimation.smooth.delay(Double(index) * 0.04),
+                                value: hasAppeared
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu { contextMenu(for: doc) }
                 }
             }
             .padding(Spacing.lg)
         }
     }
 
-    // MARK: - List
-
     private func listView(_ documents: [Document]) -> some View {
         List(documents) { doc in
-            DocumentListRow(document: doc)
-                .contentShape(Rectangle())
-                .onTapGesture { selectedDocument = doc }
-                .contextMenu { contextMenu(for: doc) }
+            NavigationLink(destination: ReaderView(document: doc)) {
+                DocumentListRow(document: doc)
+            }
+            .contextMenu { contextMenu(for: doc) }
         }
         .listStyle(.plain)
     }
-
-    // MARK: - Context menu
 
     @ViewBuilder
     private func contextMenu(for doc: Document) -> some View {
@@ -106,10 +109,9 @@ struct LibraryView: View {
         Divider()
         Button("Delete", role: .destructive) {
             viewModel.deleteDocument(doc, context: context)
+            reloadDocuments()
         }
     }
-
-    // MARK: - Empty state
 
     private var emptyState: some View {
         VStack(spacing: Spacing.lg) {
@@ -142,8 +144,6 @@ struct LibraryView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Toolbar
-
     @ToolbarContentBuilder
     private var toolbarItems: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
@@ -172,6 +172,22 @@ struct LibraryView: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
+        }
+    }
+
+    private func reloadDocuments() {
+        let descriptor = FetchDescriptor<Document>(
+            sortBy: [
+                SortDescriptor(\Document.lastOpenedAt, order: .reverse),
+                SortDescriptor(\Document.importedAt, order: .reverse),
+                SortDescriptor(\Document.title, order: .forward)
+            ]
+        )
+
+        do {
+            allDocuments = try context.fetch(descriptor)
+        } catch {
+            viewModel.errorMessage = "Could not load your library."
         }
     }
 }

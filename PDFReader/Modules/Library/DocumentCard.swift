@@ -3,7 +3,6 @@ import SwiftUI
 struct DocumentCard: View {
 
     let document: Document
-    @State private var isPressed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -19,16 +18,7 @@ struct DocumentCard: View {
             RoundedRectangle(cornerRadius: Radius.md)
                 .strokeBorder(Color.borderSubtle, lineWidth: 0.5)
         )
-        .scaleEffect(isPressed ? 0.97 : 1.0)
-        .animation(AppAnimation.snappy, value: isPressed)
-        .onLongPressGesture(
-            minimumDuration: 0.01,
-            pressing: { pressing in isPressed = pressing },
-            perform: {}
-        )
     }
-
-    // MARK: - Cover
 
     private var coverView: some View {
         let palette = Color.coverPalette[abs(document.title.hashValue) % Color.coverPalette.count]
@@ -37,7 +27,6 @@ struct DocumentCard: View {
             ZStack(alignment: .topTrailing) {
                 palette.bg
 
-                // Decorative lines
                 VStack(alignment: .leading, spacing: 5) {
                     RoundedRectangle(cornerRadius: 2)
                         .frame(width: geo.size.width * 0.68, height: 7)
@@ -52,7 +41,6 @@ struct DocumentCard: View {
                 .padding(14)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
 
-                // Page count badge
                 if document.totalPages > 0 {
                     Text("\(document.totalPages) pp")
                         .font(.caption2)
@@ -68,8 +56,6 @@ struct DocumentCard: View {
     }
 
     private let lineFractions: [Double] = [0.85, 0.55, 0.78, 0.45]
-
-    // MARK: - Info
 
     private var infoView: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -161,8 +147,6 @@ struct DocumentListRow: View {
         }
     }
 }
-
-// MARK: - CircularProgress
 
 private struct CircularProgress: View {
     let fraction: Double
