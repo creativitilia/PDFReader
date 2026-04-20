@@ -7,11 +7,12 @@ struct DefinitionPopupView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(Color.primary.opacity(0.2))
+            // Drag handle
+            Capsule()
+                .fill(Color.primary.opacity(0.18))
                 .frame(width: 36, height: 4)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
 
             switch viewModel.state {
             case .idle:
@@ -19,56 +20,53 @@ struct DefinitionPopupView: View {
             case .loading:
                 loadingView
             case .loaded(let response):
-                loadedView(response: response)
+                loadedView(response)
             case .error(let error):
-                errorView(error: error)
+                errorView(error)
             }
         }
         .background(Color(UIColor.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .clipShape(RoundedRectangle(cornerRadius: 24))
         .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 24)
+                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.5)
         )
-        .frame(maxWidth: 360)
-        .shadow(color: .black.opacity(0.1), radius: 20, x: 0, y: 4)
+        .shadow(color: .black.opacity(0.13), radius: 24, x: 0, y: 6)
     }
 
     // MARK: - Loading
 
     private var loadingView: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             ProgressView()
-                .scaleEffect(1.2)
-            Text("Looking up definition…")
+            Text("Looking up…")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-        .frame(height: 120)
         .frame(maxWidth: .infinity)
+        .frame(height: 100)
+        .padding(.bottom, 16)
     }
 
     // MARK: - Error
 
-    private func errorView(error: DictionaryError) -> some View {
+    private func errorView(_ error: DictionaryError) -> some View {
         VStack(spacing: 10) {
             Image(systemName: errorIcon(for: error))
-                .font(.system(size: 28))
+                .font(.system(size: 30))
                 .foregroundStyle(.secondary)
-
             Text(error.errorDescription ?? "Something went wrong")
                 .font(.subheadline)
                 .fontWeight(.medium)
-                .foregroundStyle(.primary)
-
             Text(error.suggestion)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 20)
         }
-        .padding(.vertical, 20)
         .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 20)
+        .padding(.bottom, 8)
     }
 
     private func errorIcon(for error: DictionaryError) -> String {
@@ -81,44 +79,39 @@ struct DefinitionPopupView: View {
 
     // MARK: - Loaded
 
-    private func loadedView(response: DictionaryResponse) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            wordHeader(response: response)
-            Divider()
-            tabPicker(response: response)
-            Divider()
+    private func loadedView(_ response: DictionaryResponse) -> some View {
+        VStack(spacing: 0) {
 
-            if viewModel.activeTab == 0 {
-                definitionTab(response: response)
-            } else {
-                synonymsTab(response: response)
+            // Header
+            header(response)
+
+            Divider().padding(.horizontal, 4)
+
+            // Scrollable content
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    ForEach(Array(response.entries.prefix(3).enumerated()), id: \.offset) { i, entry in
+                        entryBlock(entry, index: i, total: min(response.entries.count, 3))
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 16)
+                .padding(.bottom, 24)
             }
-
-            Divider()
-
-            Button(action: onDismiss) {
-                Text("Done")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.blue)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-            }
-            .buttonStyle(.plain)
+            .frame(maxHeight: 320)
         }
     }
 
-    // MARK: - Word header
+    // MARK: - Header
 
-    private func wordHeader(response: DictionaryResponse) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 3) {
+    private func header(_ response: DictionaryResponse) -> some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(response.word)
-                    .font(.title2)
-                    .fontWeight(.semibold)
+                    .font(.system(size: 22, weight: .semibold, design: .default))
                     .foregroundStyle(.primary)
 
-                if let phonetic = response.primaryPhonetic {
+                if let phonetic = response.phonetic, !phonetic.isEmpty {
                     Text(phonetic)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -127,96 +120,88 @@ struct DefinitionPopupView: View {
 
             Spacer()
 
-            if let pos = response.meanings.first?.partOfSpeech {
-                Text(pos)
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.blue)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color.blue.opacity(0.1))
-                    .clipShape(Capsule())
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+                    .background(Color.primary.opacity(0.08))
+                    .clipShape(Circle())
             }
+            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
     }
 
-    // MARK: - Tab picker
+    // MARK: - Entry block
 
-    private func tabPicker(response: DictionaryResponse) -> some View {
-        HStack(spacing: 0) {
-            tabButton(title: "Definition", index: 0)
+    private func entryBlock(_ entry: DictionaryEntry, index: Int, total: Int) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
 
-            let hasSynonyms = response.meanings.contains { !$0.allSynonyms.isEmpty }
-            if hasSynonyms {
-                tabButton(title: "Synonyms", index: 1)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-    }
+            // Part of speech label
+            Text(entry.partOfSpeech)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.blue)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.blue.opacity(0.09))
+                .clipShape(Capsule())
 
-    private func tabButton(title: String, index: Int) -> some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                viewModel.activeTab = index
-            }
-        } label: {
-            VStack(spacing: 4) {
-                Text(title)
-                    .font(.subheadline)
-                    .fontWeight(viewModel.activeTab == index ? .medium : .regular)
-                    .foregroundStyle(viewModel.activeTab == index ? .blue : .secondary)
-                    .padding(.horizontal, 4)
-
-                Rectangle()
-                    .fill(viewModel.activeTab == index ? Color.blue : Color.clear)
-                    .frame(height: 2)
-                    .clipShape(Capsule())
-            }
-        }
-        .buttonStyle(.plain)
-        .padding(.trailing, 16)
-    }
-
-    // MARK: - Definition tab
-
-    private func definitionTab(response: DictionaryResponse) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                ForEach(Array(response.meanings.prefix(3).enumerated()), id: \.offset) { _, meaning in
-                    meaningBlock(meaning: meaning)
+            // Definitions
+            if !entry.definitions.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(entry.definitions.prefix(3).enumerated()), id: \.offset) { i, def in
+                        definitionRow(def, number: i + 1, showNumber: entry.definitions.count > 1)
+                    }
                 }
             }
-            .padding(16)
+
+            // Synonyms
+            if !entry.synonyms.isEmpty {
+                synonymsSection(entry.synonyms)
+            }
+
+            // Divider between entries (not after last)
+            if index < total - 1 {
+                Divider()
+                    .padding(.top, 4)
+            }
         }
-        .frame(maxHeight: 220)
     }
 
-    private func meaningBlock(meaning: Meaning) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(meaning.partOfSpeech)
-                .font(.caption)
-                .fontWeight(.medium)
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .tracking(0.5)
+    // MARK: - Definition row
 
-            if let def = meaning.primaryDefinition {
-                Text(def.definition)
+    private func definitionRow(_ def: DictionaryDefinition, number: Int, showNumber: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                if showNumber {
+                    Text("\(number).")
+                        .font(.subheadline)
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 16, alignment: .leading)
+                }
+
+                Text(def.text)
                     .font(.subheadline)
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
-                if let example = def.example, !example.isEmpty {
-                    HStack(alignment: .top, spacing: 8) {
-                        Rectangle()
-                            .fill(Color.blue.opacity(0.4))
+            if let example = def.example, !example.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    if showNumber {
+                        Spacer().frame(width: 16)
+                    }
+
+                    HStack(alignment: .top, spacing: 6) {
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(Color.blue.opacity(0.35))
                             .frame(width: 2)
-                            .clipShape(Capsule())
+                            .padding(.top, 2)
 
-                        Text("\"\(example)\"")
+                        Text(example)
                             .font(.caption)
                             .italic()
                             .foregroundStyle(.secondary)
@@ -225,45 +210,32 @@ struct DefinitionPopupView: View {
                 }
             }
         }
-        .padding(12)
-        .background(Color(UIColor.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
-    // MARK: - Synonyms tab
+    // MARK: - Synonyms section
 
-    private func synonymsTab(response: DictionaryResponse) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                ForEach(
-                    response.meanings.filter { !$0.allSynonyms.isEmpty }.prefix(3),
-                    id: \.partOfSpeech
-                ) { meaning in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(meaning.partOfSpeech)
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundStyle(.secondary)
-                            .textCase(.uppercase)
-                            .tracking(0.5)
+    private func synonymsSection(_ synonyms: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Synonyms")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+                .tracking(0.5)
 
-                        FlowLayout(spacing: 6) {
-                            ForEach(meaning.allSynonyms, id: \.self) { synonym in
-                                Text(synonym)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.blue)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(Color.blue.opacity(0.08))
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                            }
-                        }
-                    }
+            // Wrapping chip layout
+            FlowLayout(spacing: 6) {
+                ForEach(synonyms, id: \.self) { word in
+                    Text(word)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(Color(UIColor.label).opacity(0.75))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(Color.primary.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
             }
-            .padding(16)
         }
-        .frame(maxHeight: 220)
     }
 }
 
@@ -273,49 +245,37 @@ struct FlowLayout: Layout {
     var spacing: CGFloat = 8
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = computeRows(proposal: proposal, subviews: subviews)
+        let rows = rows(for: subviews, width: proposal.width ?? .infinity)
         let height = rows.map { row in
             row.map { subviews[$0].sizeThatFits(.unspecified).height }.max() ?? 0
         }.reduce(0) { $0 + $1 + spacing } - spacing
-
         return CGSize(width: proposal.width ?? 0, height: max(height, 0))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let rows = computeRows(proposal: proposal, subviews: subviews)
         var y = bounds.minY
-
-        for row in rows {
+        for row in rows(for: subviews, width: bounds.width) {
             var x = bounds.minX
-            let rowHeight = row.map {
-                subviews[$0].sizeThatFits(.unspecified).height
-            }.max() ?? 0
-
-            for index in row {
-                let size = subviews[index].sizeThatFits(.unspecified)
-                subviews[index].place(
-                    at: CGPoint(x: x, y: y),
-                    proposal: ProposedViewSize(size)
-                )
+            let h = row.map { subviews[$0].sizeThatFits(.unspecified).height }.max() ?? 0
+            for i in row {
+                let size = subviews[i].sizeThatFits(.unspecified)
+                subviews[i].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
                 x += size.width + spacing
             }
-            y += rowHeight + spacing
+            y += h + spacing
         }
     }
 
-    private func computeRows(proposal: ProposedViewSize, subviews: Subviews) -> [[Int]] {
+    private func rows(for subviews: Subviews, width: CGFloat) -> [[Int]] {
         var rows: [[Int]] = [[]]
         var x: CGFloat = 0
-        let maxWidth = proposal.width ?? .infinity
-
-        for (i, subview) in subviews.enumerated() {
-            let width = subview.sizeThatFits(.unspecified).width
-            if x + width > maxWidth, !rows[rows.count - 1].isEmpty {
-                rows.append([])
-                x = 0
+        for (i, sv) in subviews.enumerated() {
+            let w = sv.sizeThatFits(.unspecified).width
+            if x + w > width, !rows[rows.count - 1].isEmpty {
+                rows.append([]); x = 0
             }
             rows[rows.count - 1].append(i)
-            x += width + spacing
+            x += w + spacing
         }
         return rows
     }

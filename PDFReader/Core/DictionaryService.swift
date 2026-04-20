@@ -1,61 +1,86 @@
 import Foundation
 
-// MARK: - API Response Models
+// MARK: - Raw API models
+// All fields match the API schema exactly — nothing is optional
+// except fields the API truly omits in some responses.
 
-struct WiktionaryResponse: Decodable {
+private struct APIResponse: Decodable {
     let word: String
-    let entries: [WiktionaryEntry]
-    let source: WiktionarySource?
+    let entries: [APIEntry]
 }
 
-struct WiktionaryEntry: Decodable {
-    let language: WiktionaryLanguage
+private struct APIEntry: Decodable {
+    let language: APILanguage
     let partOfSpeech: String
-    let pronunciations: [WiktionaryPronunciation]?
-    let senses: [WiktionarySense]
-    let synonyms: [String]?
+    let pronunciations: [APIPronunciation]
+    let senses: [APISense]
+    let synonyms: [String]
+    let antonyms: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case language, partOfSpeech, pronunciations, senses, synonyms, antonyms
+    }
 }
 
-struct WiktionaryLanguage: Decodable {
+private struct APILanguage: Decodable {
     let code: String
     let name: String
 }
 
-struct WiktionaryPronunciation: Decodable {
-    let type: String?
-    let text: String?
+private struct APIPronunciation: Decodable {
+    let type: String
+    let text: String
+    let tags: [String]
+
+    // Some pronunciations omit type/text in edge cases — make safe
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        type = (try? c.decode(String.self, forKey: .type)) ?? ""
+        text = (try? c.decode(String.self, forKey: .text)) ?? ""
+        tags = (try? c.decode([String].self, forKey: .tags)) ?? []
+    }
+    enum CodingKeys: String, CodingKey { case type, text, tags }
 }
 
-struct WiktionarySense: Decodable {
+private struct APISense: Decodable {
     let definition: String
-    let examples: [String]?
-    let synonyms: [String]?
+    let examples: [String]
+    let synonyms: [String]
+    let antonyms: [String]
+    // subsenses is recursive — we decode it but don't use it deeply
+    let subsenses: [APISense]
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        definition = (try? c.decode(String.self, forKey: .definition)) ?? ""
+        examples   = (try? c.decode([String].self, forKey: .examples))  ?? []
+        synonyms   = (try? c.decode([String].self, forKey: .synonyms))  ?? []
+        antonyms   = (try? c.decode([String].self, forKey: .antonyms))  ?? []
+        subsenses  = (try? c.decode([APISense].self, forKey: .subsenses)) ?? []
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case definition, examples, synonyms, antonyms, subsenses
+    }
 }
 
-struct WiktionarySource: Decodable {
-    let url: String?
-}
-
-// MARK: - App-level models (used by UI)
+// MARK: - App-level models (consumed by UI)
 
 struct DictionaryResponse {
     let word: String
-    let meanings: [Meaning]
-    let primaryPhonetic: String?
+    let phonetic: String?
+    let entries: [DictionaryEntry]
 }
 
-struct Meaning {
+struct DictionaryEntry {
     let partOfSpeech: String
-    let definitions: [Definition]
-    let allSynonyms: [String]
-
-    var primaryDefinition: Definition? { definitions.first }
+    let definitions: [DictionaryDefinition]
+    let synonyms: [String]
 }
 
-struct Definition {
-    let definition: String
+struct DictionaryDefinition {
+    let text: String
     let example: String?
-    let synonyms: [String]
 }
 
 // MARK: - Errors
@@ -86,148 +111,103 @@ enum DictionaryError: LocalizedError {
 
 struct DictionaryService {
 
-    private static let baseURL = "https://freedictionaryapi.com/api/v1/entries"
+    private static let base = "https://freedictionaryapi.com/api/v1/entries"
 
-    /// Looks up a word. Tries English first, then French.
+    /// Tries English first, then French. Returns first success.
     static func define(word: String) async throws -> DictionaryResponse {
-        let cleaned = cleanWord(word)
-        guard !cleaned.isEmpty else {
-            throw DictionaryError.wordNotFound
-        }
+        let cleaned = clean(word)
+        guard !cleaned.isEmpty else { throw DictionaryError.wordNotFound }
 
-        var lastError: DictionaryError = .wordNotFound
-
-        for langCode in ["en", "fr"] {
+        var last: DictionaryError = .wordNotFound
+        for lang in ["en", "fr"] {
             do {
-                let result = try await fetch(word: cleaned, langCode: langCode)
-                return result
-            } catch let error as DictionaryError {
-                switch error {
-                case .noInternet:
-                    throw error
-                case .wordNotFound, .unknown:
-                    lastError = error
-                }
+                return try await fetch(word: cleaned, lang: lang)
+            } catch let e as DictionaryError {
+                if case .noInternet = e { throw e }
+                last = e
             }
         }
-
-        throw lastError
+        throw last
     }
 
     // MARK: - Fetch
 
-    private static func fetch(word: String, langCode: String) async throws -> DictionaryResponse {
-        // URLComponents handles accented characters (é, è, à, ç, etc.) correctly
+    private static func fetch(word: String, lang: String) async throws -> DictionaryResponse {
         var components = URLComponents()
         components.scheme = "https"
-        components.host = "freedictionaryapi.com"
-        components.path = "/api/v1/entries/\(langCode)/\(word)"
+        components.host   = "freedictionaryapi.com"
+        components.path   = "/api/v1/entries/\(lang)/\(word)"
 
-        guard let url = components.url else {
-            throw DictionaryError.wordNotFound
-        }
+        guard let url = components.url else { throw DictionaryError.wordNotFound }
 
         do {
             let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse else { throw DictionaryError.wordNotFound }
 
-            guard let http = response as? HTTPURLResponse else {
-                throw DictionaryError.wordNotFound
+            switch http.statusCode {
+            case 200:       break
+            case 400, 404:  throw DictionaryError.wordNotFound
+            case 429:       throw DictionaryError.unknown("Rate limit reached. Try again shortly.")
+            default:        throw DictionaryError.unknown("Server error \(http.statusCode).")
             }
 
-            if http.statusCode == 404 || http.statusCode == 400 {
-                throw DictionaryError.wordNotFound
-            }
-
-            if http.statusCode == 429 {
-                throw DictionaryError.unknown("Rate limit reached. Try again in a moment.")
-            }
-
-            let raw = try JSONDecoder().decode(WiktionaryResponse.self, from: data)
+            let raw = try JSONDecoder().decode(APIResponse.self, from: data)
+            guard !raw.entries.isEmpty else { throw DictionaryError.wordNotFound }
             return convert(raw)
 
-        } catch let error as DictionaryError {
-            throw error
-        } catch let urlError as URLError {
-            if urlError.code == .notConnectedToInternet ||
-               urlError.code == .networkConnectionLost {
-                throw DictionaryError.noInternet
-            }
-            throw DictionaryError.unknown(urlError.localizedDescription)
+        } catch let e as DictionaryError { throw e
+        } catch let e as URLError {
+            throw (e.code == .notConnectedToInternet || e.code == .networkConnectionLost)
+                ? DictionaryError.noInternet
+                : DictionaryError.unknown(e.localizedDescription)
         } catch {
             throw DictionaryError.wordNotFound
         }
     }
 
-    // MARK: - Convert API response → app model
+    // MARK: - Convert
 
-    private static func convert(_ raw: WiktionaryResponse) -> DictionaryResponse {
-        // Primary phonetic from first entry that has one
+    private static func convert(_ raw: APIResponse) -> DictionaryResponse {
         let phonetic = raw.entries
-            .compactMap { $0.pronunciations }
-            .flatMap { $0 }
-            .first(where: { $0.text != nil && !(($0.text ?? "").isEmpty) })?
+            .flatMap { $0.pronunciations }
+            .first { !$0.text.isEmpty }?
             .text
 
-        // Group entries by partOfSpeech into Meaning objects
-        let meanings: [Meaning] = raw.entries.map { entry in
-            let definitions = entry.senses.map { sense in
-                Definition(
-                    definition: sense.definition,
-                    example: sense.examples?.first,
-                    synonyms: sense.synonyms ?? []
+        let entries = raw.entries.map { entry -> DictionaryEntry in
+            let defs = entry.senses.map { sense -> DictionaryDefinition in
+                DictionaryDefinition(
+                    text: sense.definition,
+                    example: sense.examples.first
                 )
             }
 
-            // Collect synonyms from both entry level and sense level
-            let senseSynonyms = entry.senses.flatMap { $0.synonyms ?? [] }
-            let entrySynonyms = entry.synonyms ?? []
-            let allSyns = Array(Set(senseSynonyms + entrySynonyms))
-                .sorted()
-                .prefix(8)
-                .map { $0 }
+            // Collect synonyms from entry level + all senses
+            let allSyns = Array(Set(
+                entry.synonyms + entry.senses.flatMap { $0.synonyms }
+            ))
+            .filter { !$0.isEmpty }
+            .sorted()
+            .prefix(10)
+            .map { $0 }
 
-            return Meaning(
+            return DictionaryEntry(
                 partOfSpeech: entry.partOfSpeech,
-                definitions: definitions,
-                allSynonyms: allSyns
+                definitions: defs,
+                synonyms: allSyns
             )
         }
 
-        return DictionaryResponse(
-            word: raw.word,
-            meanings: meanings,
-            primaryPhonetic: phonetic
-        )
+        return DictionaryResponse(word: raw.word, phonetic: phonetic, entries: entries)
     }
 
-    // MARK: - Word cleaning
+    // MARK: - Clean
 
-    private static func cleanWord(_ raw: String) -> String {
-        let unicodeSpaces = CharacterSet(charactersIn:
-            "\u{00A0}\u{202F}\u{2009}\u{200B}\u{FEFF}\u{2060}"
-        )
-        let allWhitespace = CharacterSet.whitespacesAndNewlines.union(unicodeSpaces)
-
-        var result = raw.trimmingCharacters(in: allWhitespace)
-
-        result = result.unicodeScalars
-            .filter { !allWhitespace.contains($0) }
-            .map { String($0) }
-            .joined()
-
-        result = result.components(separatedBy: .punctuationCharacters).joined()
-        result = result.lowercased()
-
-        return result
+    private static func clean(_ raw: String) -> String {
+        let spaces = CharacterSet(charactersIn: "\u{00A0}\u{202F}\u{2009}\u{200B}\u{FEFF}\u{2060}")
+        let all = CharacterSet.whitespacesAndNewlines.union(spaces)
+        var s = raw.trimmingCharacters(in: all)
+        s = s.unicodeScalars.filter { !all.contains($0) }.map { String($0) }.joined()
+        s = s.components(separatedBy: .punctuationCharacters).joined()
+        return s.lowercased()
     }
-}
-
-// MARK: - Identifiable conformances for SwiftUI
-
-extension Meaning: Identifiable {
-    var id: String { partOfSpeech }
-}
-
-extension Definition: Identifiable {
-    var id: String { definition }
 }
