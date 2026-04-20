@@ -1,109 +1,91 @@
 import SwiftUI
 
-/// Grid card shown in the library 2-column layout.
 struct DocumentCard: View {
 
     let document: Document
+    @State private var isPressed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Cover area
             coverView
-                .frame(height: 120)
+                .frame(height: 130)
                 .clipped()
 
-            // Metadata
-            VStack(alignment: .leading, spacing: 3) {
-                Text(document.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(2)
-                    .foregroundStyle(.primary)
-
-                Text(subtitleText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            infoView
         }
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(Color.surfaceSecondary)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.md))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(Color(.separator), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: Radius.md)
+                .strokeBorder(Color.borderSubtle, lineWidth: 0.5)
+        )
+        .scaleEffect(isPressed ? 0.97 : 1.0)
+        .animation(AppAnimation.snappy, value: isPressed)
+        .onLongPressGesture(
+            minimumDuration: 0.01,
+            pressing: { pressing in isPressed = pressing },
+            perform: {}
         )
     }
 
     // MARK: - Cover
 
     private var coverView: some View {
-        ZStack(alignment: .topTrailing) {
-            // Placeholder cover with accent color derived from title
-            coverColor
-                .overlay(coverLines)
+        let palette = Color.coverPalette[abs(document.title.hashValue) % Color.coverPalette.count]
 
-            // Page count badge
-            if document.totalPages > 0 {
-                Text("\(document.totalPages) pp")
-                    .font(.caption2)
-                    .fontWeight(.medium)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .padding(6)
+        return GeometryReader { geo in
+            ZStack(alignment: .topTrailing) {
+                palette.bg
+
+                // Decorative lines
+                VStack(alignment: .leading, spacing: 5) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .frame(width: geo.size.width * 0.68, height: 7)
+                        .opacity(0.5)
+                    ForEach(Array(lineFractions.enumerated()), id: \.offset) { _, f in
+                        RoundedRectangle(cornerRadius: 2)
+                            .frame(width: geo.size.width * f, height: 4)
+                            .opacity(0.35)
+                    }
+                }
+                .foregroundStyle(palette.accent)
+                .padding(14)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+
+                // Page count badge
+                if document.totalPages > 0 {
+                    Text("\(document.totalPages) pp")
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .padding(8)
+                }
             }
         }
     }
 
-    /// Decorative line art that simulates a page of text.
-    private var coverLines: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            RoundedRectangle(cornerRadius: 2)
-                .frame(width: coverLineWidth(fraction: 0.75), height: 7)
-                .opacity(0.45)
-            ForEach(0..<4, id: \.self) { i in
-                RoundedRectangle(cornerRadius: 2)
-                    .frame(width: coverLineWidth(fraction: lineFractions[i % lineFractions.count]), height: 4)
-                    .opacity(0.35)
-            }
+    private let lineFractions: [Double] = [0.85, 0.55, 0.78, 0.45]
+
+    // MARK: - Info
+
+    private var infoView: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(document.title)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .lineLimit(2)
+                .foregroundStyle(.primary)
+
+            Text(subtitleText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
-        .foregroundStyle(coverAccentColor)
-        .padding(14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .padding(.horizontal, Spacing.sm + 2)
+        .padding(.vertical, Spacing.sm)
     }
-
-    // Fixed fractions so lines look natural without randomness (deterministic per card)
-    private let lineFractions: [Double] = [0.9, 0.6, 0.85, 0.5]
-
-    private func coverLineWidth(fraction: Double) -> CGFloat {
-        // Approximation — actual width depends on card width at runtime
-        CGFloat(fraction * 110)
-    }
-
-    // MARK: - Color helpers
-
-    private var coverColor: Color {
-        // Pick a consistent color from the title's hash
-        let colors: [Color] = [
-            Color(red: 0.90, green: 0.94, blue: 0.98),   // blue-50
-            Color(red: 0.93, green: 0.93, blue: 0.99),   // purple-50
-            Color(red: 0.88, green: 0.96, blue: 0.93),   // teal-50
-            Color(red: 0.98, green: 0.93, blue: 0.85),   // amber-50
-            Color(red: 0.98, green: 0.92, blue: 0.91),   // coral-50
-        ]
-        let index = abs(document.title.hashValue) % colors.count
-        return colors[index]
-    }
-
-    private var coverAccentColor: Color {
-        let colors: [Color] = [.blue, .purple, .teal, .orange, .red]
-        let index = abs(document.title.hashValue) % colors.count
-        return colors[index]
-    }
-
-    // MARK: - Subtitle
 
     private var subtitleText: String {
         if let opened = document.lastOpenedAt {
@@ -115,52 +97,84 @@ struct DocumentCard: View {
 
 // MARK: - DocumentListRow
 
-/// Compact row used in list layout mode.
 struct DocumentListRow: View {
 
     let document: Document
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Small thumbnail placeholder
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color(.secondarySystemBackground))
-                .frame(width: 44, height: 56)
-                .overlay(
-                    Image(systemName: "doc.text.fill")
-                        .foregroundStyle(.secondary)
-                        .font(.title3)
-                )
+        HStack(spacing: Spacing.md) {
+            listThumbnail
+            infoStack
+            Spacer()
+            progressIndicator
+        }
+        .padding(.vertical, Spacing.xs)
+    }
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(document.title)
-                    .font(.body)
-                    .fontWeight(.medium)
-                    .lineLimit(2)
+    private var listThumbnail: some View {
+        let palette = Color.coverPalette[abs(document.title.hashValue) % Color.coverPalette.count]
+        return RoundedRectangle(cornerRadius: Radius.sm)
+            .fill(palette.bg)
+            .frame(width: 44, height: 56)
+            .overlay(
+                Image(systemName: "doc.text.fill")
+                    .foregroundStyle(palette.accent.opacity(0.7))
+                    .font(.title3)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.sm)
+                    .strokeBorder(Color.borderSubtle, lineWidth: 0.5)
+            )
+    }
 
-                Text(document.totalPages > 0 ? "\(document.totalPages) pages" : "Unknown length")
+    private var infoStack: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(document.title)
+                .font(.body)
+                .fontWeight(.medium)
+                .lineLimit(2)
+
+            Text(document.totalPages > 0 ? "\(document.totalPages) pages" : "—")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if let opened = document.lastOpenedAt {
+                Text("Opened \(opened.relativeDescription)")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
 
-                if let opened = document.lastOpenedAt {
-                    Text("Opened \(opened.relativeDescription)")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+    private var progressIndicator: some View {
+        Group {
+            if document.totalPages > 0 && document.currentPage > 0 {
+                VStack(spacing: 3) {
+                    CircularProgress(fraction: document.progressFraction)
+                        .frame(width: 28, height: 28)
+                    Text("\(Int(document.progressFraction * 100))%")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
             }
-
-            Spacer()
         }
-        .padding(.vertical, 4)
     }
 }
 
-// MARK: - Date helper
+// MARK: - CircularProgress
 
-private extension Date {
-    var relativeDescription: String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: self, relativeTo: .now)
+private struct CircularProgress: View {
+    let fraction: Double
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.primary.opacity(0.08), lineWidth: 3)
+            Circle()
+                .trim(from: 0, to: fraction)
+                .stroke(Color.readerAccent, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
     }
 }

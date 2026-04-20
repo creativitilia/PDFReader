@@ -4,23 +4,20 @@ import UniformTypeIdentifiers
 
 struct LibraryView: View {
 
-    // MARK: - Environment & state
-
     @Environment(\.modelContext) private var context
     @Query private var allDocuments: [Document]
 
     @State private var viewModel = LibraryViewModel()
     @State private var selectedDocument: Document? = nil
+    @State private var hasAppeared = false
 
     private let gridColumns = [
-        GridItem(.adaptive(minimum: 150, maximum: 200), spacing: 16)
+        GridItem(.adaptive(minimum: 155, maximum: 210), spacing: Spacing.lg)
     ]
 
-    // MARK: - Body
-
     var body: some View {
+        let documents = viewModel.filteredAndSorted(allDocuments)
         Group {
-            let documents = viewModel.filteredAndSorted(allDocuments)
             if documents.isEmpty {
                 emptyState
             } else if viewModel.isGridLayout {
@@ -33,6 +30,9 @@ struct LibraryView: View {
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $viewModel.searchText, prompt: "Search documents")
         .toolbar { toolbarItems }
+        .navigationDestination(item: $selectedDocument) { doc in
+            ReaderView(document: doc)
+        }
         .fileImporter(
             isPresented: $viewModel.showImporter,
             allowedContentTypes: [.pdf],
@@ -58,52 +58,47 @@ struct LibraryView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
+        .onAppear {
+            withAnimation(AppAnimation.smooth.delay(0.05)) {
+                hasAppeared = true
+            }
+        }
     }
 
-    // MARK: - Subviews
+    // MARK: - Grid
 
     private func gridView(_ documents: [Document]) -> some View {
         ScrollView {
-            LazyVGrid(columns: gridColumns, spacing: 16) {
-                ForEach(documents) { doc in
+            LazyVGrid(columns: gridColumns, spacing: Spacing.lg) {
+                ForEach(Array(documents.enumerated()), id: \.element.id) { index, doc in
                     DocumentCard(document: doc)
-                        .onTapGesture {
-                            selectedDocument = doc
-                        }
+                        .opacity(hasAppeared ? 1 : 0)
+                        .offset(y: hasAppeared ? 0 : 12)
+                        .animation(
+                            AppAnimation.smooth.delay(Double(index) * 0.04),
+                            value: hasAppeared
+                        )
+                        .onTapGesture { selectedDocument = doc }
                         .contextMenu { contextMenu(for: doc) }
                 }
             }
-            .padding(16)
-        }
-        .navigationDestination(isPresented: Binding(
-            get: { selectedDocument != nil },
-            set: { if !$0 { selectedDocument = nil } }
-        )) {
-            if let doc = selectedDocument {
-                ReaderView(document: doc)
-            }
+            .padding(Spacing.lg)
         }
     }
+
+    // MARK: - List
 
     private func listView(_ documents: [Document]) -> some View {
         List(documents) { doc in
             DocumentListRow(document: doc)
                 .contentShape(Rectangle())
-                .onTapGesture {
-                    selectedDocument = doc
-                }
+                .onTapGesture { selectedDocument = doc }
                 .contextMenu { contextMenu(for: doc) }
         }
         .listStyle(.plain)
-        .navigationDestination(isPresented: Binding(
-            get: { selectedDocument != nil },
-            set: { if !$0 { selectedDocument = nil } }
-        )) {
-            if let doc = selectedDocument {
-                ReaderView(document: doc)
-            }
-        }
     }
+
+    // MARK: - Context menu
 
     @ViewBuilder
     private func contextMenu(for doc: Document) -> some View {
@@ -114,26 +109,37 @@ struct LibraryView: View {
         }
     }
 
+    // MARK: - Empty state
+
     private var emptyState: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "doc.text.magnifyingglass")
-                .font(.system(size: 56))
-                .foregroundStyle(.secondary)
-            Text("No documents yet")
-                .font(.title3)
-                .fontWeight(.medium)
-            Text("Tap the import button above to add your first PDF.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+        VStack(spacing: Spacing.lg) {
+            Image(systemName: "books.vertical")
+                .font(.system(size: 52))
+                .foregroundStyle(.quaternary)
+                .padding(.bottom, Spacing.sm)
+
+            VStack(spacing: Spacing.xs) {
+                Text("Your library is empty")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+
+                Text("Import a PDF to get started.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
             Button(action: { viewModel.showImporter = true }) {
                 Label("Import PDF", systemImage: "plus")
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
+                    .fontWeight(.medium)
+                    .padding(.horizontal, Spacing.xl)
+                    .padding(.vertical, Spacing.sm + 2)
             }
             .buttonStyle(.borderedProminent)
+            .padding(.top, Spacing.xs)
         }
-        .padding(40)
+        .padding(Spacing.xxl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Toolbar
@@ -154,7 +160,9 @@ struct LibraryView: View {
                 }
                 Divider()
                 Button {
-                    withAnimation { viewModel.isGridLayout.toggle() }
+                    withAnimation(AppAnimation.smooth) {
+                        viewModel.isGridLayout.toggle()
+                    }
                 } label: {
                     Label(
                         viewModel.isGridLayout ? "List view" : "Grid view",
@@ -168,18 +176,12 @@ struct LibraryView: View {
     }
 }
 
-// MARK: - Preview
-
 #Preview("With mock data") {
-    NavigationStack {
-        LibraryView()
-    }
-    .modelContainer(MockData.previewContainer)
+    NavigationStack { LibraryView() }
+        .modelContainer(MockData.previewContainer)
 }
 
 #Preview("Empty state") {
-    NavigationStack {
-        LibraryView()
-    }
-    .modelContainer(AppContainer.shared.modelContainer)
+    NavigationStack { LibraryView() }
+        .modelContainer(AppContainer.shared.modelContainer)
 }
