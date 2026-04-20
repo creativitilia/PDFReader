@@ -7,7 +7,6 @@ struct DefinitionPopupView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Drag handle
             RoundedRectangle(cornerRadius: 2)
                 .fill(Color.primary.opacity(0.2))
                 .frame(width: 36, height: 4)
@@ -17,13 +16,10 @@ struct DefinitionPopupView: View {
             switch viewModel.state {
             case .idle:
                 EmptyView()
-
             case .loading:
                 loadingView
-
             case .loaded(let response):
                 loadedView(response: response)
-
             case .error(let error):
                 errorView(error: error)
             }
@@ -77,10 +73,9 @@ struct DefinitionPopupView: View {
 
     private func errorIcon(for error: DictionaryError) -> String {
         switch error {
-        case .noInternet:                return "wifi.slash"
-        case .wordNotFound:              return "text.magnifyingglass"
-        case .unsupportedLanguage:       return "character.bubble"
-        case .unknown:                   return "exclamationmark.circle"
+        case .noInternet:   return "wifi.slash"
+        case .wordNotFound: return "text.magnifyingglass"
+        case .unknown:      return "exclamationmark.circle"
         }
     }
 
@@ -88,25 +83,17 @@ struct DefinitionPopupView: View {
 
     private func loadedView(response: DictionaryResponse) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-
-            // Word header
             wordHeader(response: response)
-
             Divider()
-
-            // Tab picker
             tabPicker(response: response)
-
             Divider()
 
-            // Tab content
             if viewModel.activeTab == 0 {
                 definitionTab(response: response)
             } else {
                 synonymsTab(response: response)
             }
 
-            // Footer
             Divider()
 
             Button(action: onDismiss) {
@@ -140,7 +127,6 @@ struct DefinitionPopupView: View {
 
             Spacer()
 
-            // Part of speech pill
             if let pos = response.meanings.first?.partOfSpeech {
                 Text(pos)
                     .font(.caption)
@@ -162,9 +148,7 @@ struct DefinitionPopupView: View {
         HStack(spacing: 0) {
             tabButton(title: "Definition", index: 0)
 
-            let hasSynonyms = response.meanings.contains {
-                !$0.allSynonyms.isEmpty
-            }
+            let hasSynonyms = response.meanings.contains { !$0.allSynonyms.isEmpty }
             if hasSynonyms {
                 tabButton(title: "Synonyms", index: 1)
             }
@@ -212,7 +196,6 @@ struct DefinitionPopupView: View {
 
     private func meaningBlock(meaning: Meaning) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Part of speech label
             Text(meaning.partOfSpeech)
                 .font(.caption)
                 .fontWeight(.medium)
@@ -221,13 +204,11 @@ struct DefinitionPopupView: View {
                 .tracking(0.5)
 
             if let def = meaning.primaryDefinition {
-                // Definition text
                 Text(def.definition)
                     .font(.subheadline)
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                // Example sentence
                 if let example = def.example, !example.isEmpty {
                     HStack(alignment: .top, spacing: 8) {
                         Rectangle()
@@ -266,7 +247,6 @@ struct DefinitionPopupView: View {
                             .textCase(.uppercase)
                             .tracking(0.5)
 
-                        // Chip flow layout
                         FlowLayout(spacing: 6) {
                             ForEach(meaning.allSynonyms, id: \.self) { synonym in
                                 Text(synonym)
@@ -289,7 +269,6 @@ struct DefinitionPopupView: View {
 
 // MARK: - FlowLayout
 
-/// Simple left-to-right wrapping layout for synonym chips.
 struct FlowLayout: Layout {
     var spacing: CGFloat = 8
 

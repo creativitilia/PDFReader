@@ -11,7 +11,7 @@ enum DefinitionState {
 final class DefinitionViewModel {
 
     var state: DefinitionState = .idle
-    var activeTab: Int = 0          // 0 = definition, 1 = synonyms
+    var activeTab: Int = 0
     private var currentTask: Task<Void, Never>?
 
     var isVisible: Bool {
