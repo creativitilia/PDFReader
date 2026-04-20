@@ -4,12 +4,15 @@ import SwiftUI
 
 struct ReaderTopBar: View {
     let title: String
+    let isCurrentPageBookmarked: Bool
     let onBack: () -> Void
+    let onBookmarkTap: () -> Void
     let onSearchTap: () -> Void
     let onMoreTap: () -> Void
 
     var body: some View {
         HStack(spacing: 4) {
+            // Back
             Button(action: onBack) {
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.left")
@@ -23,24 +26,34 @@ struct ReaderTopBar: View {
 
             Spacer()
 
+            // Title
             Text(title)
                 .font(.subheadline)
                 .fontWeight(.medium)
                 .lineLimit(1)
-                .frame(maxWidth: 180)
+                .frame(maxWidth: 160)
 
             Spacer()
 
-            HStack(spacing: 16) {
+            // Right actions
+            HStack(spacing: 18) {
+                Button(action: onBookmarkTap) {
+                    Image(systemName: isCurrentPageBookmarked ? "bookmark.fill" : "bookmark")
+                        .font(.system(size: 16))
+                        .foregroundStyle(isCurrentPageBookmarked ? .blue : .primary)
+                        .animation(.spring(duration: 0.2), value: isCurrentPageBookmarked)
+                }
+
                 Button(action: onSearchTap) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 16))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(.primary)
                 }
+
                 Button(action: onMoreTap) {
                     Image(systemName: "ellipsis.circle")
                         .font(.system(size: 16))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(.primary)
                 }
             }
         }

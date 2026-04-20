@@ -26,7 +26,7 @@ enum HighlightColor: String, Codable, CaseIterable {
 // MARK: - Highlight
 
 @Model
-final class Highlight {
+final class Highlight : Identifiable {
 
     var id: UUID
     var documentID: UUID

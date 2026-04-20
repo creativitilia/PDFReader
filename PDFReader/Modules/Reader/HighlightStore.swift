@@ -35,7 +35,6 @@ final class HighlightStore {
         for page in selection.pages {
             guard let pageIndex = pdfDocument.index(for: page) as Int? else { continue }
 
-            // Correct API: bounds(for:) on PDFSelection
             let bounds = selection.bounds(for: page)
             let selectedText = selection.string ?? ""
 
@@ -55,7 +54,7 @@ final class HighlightStore {
         try? context.save()
     }
 
-    // MARK: - Updating
+    // MARK: - Updating color
 
     func updateColor(
         of highlight: Highlight,
@@ -70,7 +69,40 @@ final class HighlightStore {
         render(highlight, in: pdfDocument)
     }
 
-    // MARK: - Deleting
+    // MARK: - Notes
+
+    func saveNote(for highlight: Highlight, text: String, context: ModelContext) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmed.isEmpty {
+            // Empty text — delete the note if one exists
+            deleteNote(from: highlight, context: context)
+            return
+        }
+
+        if let existing = highlight.note {
+            existing.body = trimmed
+            existing.updatedAt = .now
+        } else {
+            let note = Note(body: trimmed)
+            context.insert(note)
+            highlight.note = note
+        }
+
+        highlight.updatedAt = .now
+        try? context.save()
+    }
+
+    func deleteNote(from highlight: Highlight, context: ModelContext) {
+        if let note = highlight.note {
+            context.delete(note)
+            highlight.note = nil
+            highlight.updatedAt = .now
+            try? context.save()
+        }
+    }
+
+    // MARK: - Deleting highlight
 
     func deleteHighlight(_ highlight: Highlight, context: ModelContext) {
         guard let pdfDocument else { return }
@@ -103,7 +135,7 @@ final class HighlightStore {
         return tapped != nil
     }
 
-    // MARK: - Private
+    // MARK: - Private rendering
 
     private func render(_ highlight: Highlight, in pdfDocument: PDFDocument) {
         guard let page = pdfDocument.page(at: highlight.pageIndex) else { return }
@@ -114,6 +146,10 @@ final class HighlightStore {
                 highlight.id.uuidString,
                 forAnnotationKey: PDFAnnotationKey(rawValue: "highlightID")
             )
+            // Add a note indicator dot if a note exists
+            if highlight.note != nil {
+                annotation.setValue(true, forAnnotationKey: PDFAnnotationKey(rawValue: "hasNote"))
+            }
             page.addAnnotation(annotation)
         }
     }

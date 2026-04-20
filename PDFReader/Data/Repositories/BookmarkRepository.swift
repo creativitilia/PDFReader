@@ -1,7 +1,6 @@
 import SwiftData
 import Foundation
 
-/// Handles persistence for Bookmark objects.
 struct BookmarkRepository {
 
     static func add(
@@ -27,7 +26,27 @@ struct BookmarkRepository {
     }
 
     static func rename(_ bookmark: Bookmark, to newName: String, context: ModelContext) throws {
-        bookmark.name = newName
+        bookmark.name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        try context.save()
+    }
+
+    /// Returns true if a bookmark already exists on the given page.
+    static func bookmarkExists(
+        for document: Document,
+        pageIndex: Int
+    ) -> Bool {
+        document.bookmarks.contains { $0.pageIndex == pageIndex }
+    }
+
+    /// Removes the bookmark on a given page if one exists.
+    static func removeIfExists(
+        for document: Document,
+        pageIndex: Int,
+        context: ModelContext
+    ) throws {
+        guard let existing = document.bookmarks.first(where: { $0.pageIndex == pageIndex })
+        else { return }
+        context.delete(existing)
         try context.save()
     }
 }

@@ -60,6 +60,18 @@ final class ReaderViewModel {
         hideTask?.cancel()
     }
 
+    /// Navigates to a search result and highlights the match on the PDFView.
+    func navigate(to result: SearchResult, in pdfView: PDFView?) {
+        guard let pdfView else { return }
+        goToPage(result.pageIndex)
+        // Set the selection so PDFKit highlights it in its native blue
+        pdfView.setCurrentSelection(result.selection, animate: true)
+        // Scroll so the match is visible
+        pdfView.go(to: result.selection)
+        // Show chrome so the user sees the context
+        showChromeTemporarily()
+    }
+
     func saveProgress(for document: Document, context: ModelContext) {
         document.currentPage = currentPageIndex
         document.lastOpenedAt = .now
