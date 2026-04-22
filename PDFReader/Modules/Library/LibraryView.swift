@@ -55,8 +55,12 @@ struct LibraryView: View {
             Text(viewModel.errorMessage ?? "")
         }
         .onAppear {
-            withAnimation(AppAnimation.smooth.delay(0.05)) {
-                hasAppeared = true
+            // Use a minimal delay so the navigation transition
+            // completes before cards animate in.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                withAnimation(AppAnimation.smooth) {
+                    hasAppeared = true
+                }
             }
         }
     }
@@ -69,14 +73,14 @@ struct LibraryView: View {
                 ForEach(Array(documents.enumerated()), id: \.element.id) { index, doc in
                     NavigationLink(destination: ReaderView(document: doc)) {
                         DocumentCard(document: doc)
-                            .opacity(hasAppeared ? 1 : 0)
-                            .offset(y: hasAppeared ? 0 : 12)
-                            .animation(
-                                AppAnimation.smooth.delay(Double(index) * 0.04),
-                                value: hasAppeared
-                            )
                     }
                     .buttonStyle(.plain)
+                    .opacity(hasAppeared ? 1 : 0)
+                    .offset(y: hasAppeared ? 0 : 12)
+                    .animation(
+                        AppAnimation.smooth.delay(Double(index) * 0.04),
+                        value: hasAppeared
+                    )
                     .contextMenu { contextMenu(for: doc) }
                 }
             }
