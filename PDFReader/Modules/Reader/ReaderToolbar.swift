@@ -8,6 +8,7 @@ struct ReaderTopBar: View {
     let onBack: () -> Void
     let onBookmarkTap: () -> Void
     let onSearchTap: () -> Void
+    let onAnnotationsTap: () -> Void
     let onMoreTap: () -> Void
 
     var body: some View {
@@ -28,7 +29,7 @@ struct ReaderTopBar: View {
 
             Spacer(minLength: Spacing.sm)
 
-            // Title — truncates gracefully with ellipsis
+            // Title
             Text(title)
                 .font(.subheadline)
                 .fontWeight(.medium)
@@ -48,6 +49,7 @@ struct ReaderTopBar: View {
                 .symbolEffect(.bounce, value: isCurrentPageBookmarked)
 
                 ToolbarIconButton(icon: "magnifyingglass", action: onSearchTap)
+                ToolbarIconButton(icon: "text.alignleft", action: onAnnotationsTap)
                 ToolbarIconButton(icon: "ellipsis.circle", action: onMoreTap)
             }
         }
@@ -70,11 +72,10 @@ struct ReaderBottomBar: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            // Scrubber
             HStack(spacing: Spacing.sm) {
                 Text("1")
                     .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Color(UIColor.tertiaryLabel))
                     .monospacedDigit()
 
                 Slider(
@@ -85,12 +86,11 @@ struct ReaderBottomBar: View {
 
                 Text("\(totalPages)")
                     .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Color(UIColor.tertiaryLabel))
                     .monospacedDigit()
             }
             .padding(.horizontal, Spacing.lg)
 
-            // Navigation row
             HStack {
                 Button(action: onPrevious) {
                     Image(systemName: "chevron.left")
@@ -98,7 +98,8 @@ struct ReaderBottomBar: View {
                         .frame(width: 44, height: 36)
                         .contentShape(Rectangle())
                 }
-                .foregroundStyle(currentPage > 1 ? Color.blue : Color(UIColor.tertiaryLabel))                .disabled(currentPage <= 1)
+                .foregroundStyle(currentPage > 1 ? Color.blue : Color(UIColor.tertiaryLabel))
+                .disabled(currentPage <= 1)
 
                 Spacer()
 
@@ -115,7 +116,8 @@ struct ReaderBottomBar: View {
                         .frame(width: 44, height: 36)
                         .contentShape(Rectangle())
                 }
-                .foregroundStyle(currentPage < totalPages ? Color.blue : Color(UIColor.tertiaryLabel))                .disabled(currentPage >= totalPages)
+                .foregroundStyle(currentPage < totalPages ? Color.blue : Color(UIColor.tertiaryLabel))
+                .disabled(currentPage >= totalPages)
             }
             .padding(.horizontal, Spacing.sm)
         }

@@ -29,8 +29,10 @@ final class HighlightStore {
         selection: PDFSelection,
         color: HighlightColor,
         context: ModelContext
-    ) {
-        guard let pdfDocument else { return }
+    ) -> [Highlight] {
+        guard let pdfDocument else { return [] }
+
+        var created: [Highlight] = []
 
         for page in selection.pages {
             guard let pageIndex = pdfDocument.index(for: page) as Int? else { continue }
@@ -49,9 +51,14 @@ final class HighlightStore {
             context.insert(highlight)
             document.highlights.append(highlight)
             render(highlight, in: pdfDocument)
+            created.append(highlight)
+
+            // Haptic feedback on highlight creation
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
 
         try? context.save()
+        return created
     }
 
     // MARK: - Updating color
@@ -75,7 +82,6 @@ final class HighlightStore {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if trimmed.isEmpty {
-            // Empty text — delete the note if one exists
             deleteNote(from: highlight, context: context)
             return
         }
@@ -91,6 +97,13 @@ final class HighlightStore {
 
         highlight.updatedAt = .now
         try? context.save()
+
+        // Re-render only this one annotation to update the hasNote flag —
+        // do NOT call loadHighlights() which would duplicate all annotations.
+        if let pdfDocument {
+            removeAnnotation(for: highlight, in: pdfDocument)
+            render(highlight, in: pdfDocument)
+        }
     }
 
     func deleteNote(from highlight: Highlight, context: ModelContext) {
@@ -99,10 +112,16 @@ final class HighlightStore {
             highlight.note = nil
             highlight.updatedAt = .now
             try? context.save()
+
+            // Re-render to remove the hasNote indicator
+            if let pdfDocument {
+                removeAnnotation(for: highlight, in: pdfDocument)
+                render(highlight, in: pdfDocument)
+            }
         }
     }
 
-    // MARK: - Deleting highlight
+    // MARK: - Deleting
 
     func deleteHighlight(_ highlight: Highlight, context: ModelContext) {
         guard let pdfDocument else { return }
@@ -110,6 +129,7 @@ final class HighlightStore {
         context.delete(highlight)
         try? context.save()
         tappedHighlight = nil
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
     }
 
     // MARK: - Tap detection
@@ -146,9 +166,11 @@ final class HighlightStore {
                 highlight.id.uuidString,
                 forAnnotationKey: PDFAnnotationKey(rawValue: "highlightID")
             )
-            // Add a note indicator dot if a note exists
             if highlight.note != nil {
-                annotation.setValue(true, forAnnotationKey: PDFAnnotationKey(rawValue: "hasNote"))
+                annotation.setValue(
+                    true,
+                    forAnnotationKey: PDFAnnotationKey(rawValue: "hasNote")
+                )
             }
             page.addAnnotation(annotation)
         }

@@ -95,10 +95,7 @@ struct NoteEditorView: View {
             }
         }
         .onAppear {
-            // Small delay so the sheet finishes animating before keyboard appears
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                isFocused = true
-            }
+            isFocused = true
         }
     }
 

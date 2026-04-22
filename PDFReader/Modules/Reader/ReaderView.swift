@@ -17,10 +17,12 @@ struct ReaderView: View {
     @State private var pdfView: PDFView?
     @State private var showErrorAlert = false
     @State private var showBookmarkPanel = false
+    @State private var showAnnotationSidebar = false
 
     @State private var currentSelection: PDFSelection? = nil
-    @State private var selectedText: String = ""
     @State private var menuPosition: CGPoint = CGPoint(x: 200, y: 200)
+    @State private var pendingHighlightSelection: PDFSelection? = nil
+    @State private var highlightMenuPosition: CGPoint = CGPoint(x: 200, y: 200)
     @State private var noteEditorTarget: Highlight? = nil
 
     init(document: Document) {
@@ -45,17 +47,14 @@ struct ReaderView: View {
                 chromeOverlay
             }
 
-            // Selection menu (shown when text selected)
-            if currentSelection != nil {
-                selectionMenu
-            }
-
-            // Highlight tap popup
             if highlightStore.tappedHighlight != nil {
                 highlightPopup
             }
 
-            // Definition popup (shown as bottom sheet overlay)
+            if pendingHighlightSelection != nil {
+                highlightColorPicker
+            }
+
             if definitionViewModel.isVisible {
                 definitionOverlay
             }
@@ -86,14 +85,27 @@ struct ReaderView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showAnnotationSidebar) {
+            AnnotationSidebarView(
+                document: document,
+                onNavigate: { pageIndex in
+                    viewModel.goToPage(pageIndex)
+                },
+                onEditNote: { highlight in
+                    noteEditorTarget = highlight
+                },
+                onDeleteHighlight: { highlight in
+                    highlightStore.deleteHighlight(highlight, context: context)
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         .sheet(item: $noteEditorTarget) { highlight in
             NoteEditorView(
                 highlight: highlight,
                 onSave: { text in
                     highlightStore.saveNote(for: highlight, text: text, context: context)
-                    if let pdf = pdfDocument {
-                        highlightStore.loadHighlights(into: pdf)
-                    }
                 },
                 onDelete: {
                     highlightStore.deleteNote(from: highlight, context: context)
@@ -142,54 +154,96 @@ struct ReaderView: View {
                 let hitHighlight = highlightStore.handleTap(at: point, on: pv)
 
                 if !hitHighlight {
-                    if currentSelection == nil && !definitionViewModel.isVisible {
+                    if currentSelection == nil
+                        && !definitionViewModel.isVisible
+                        && pendingHighlightSelection == nil {
                         viewModel.toggleChrome()
                     }
                     clearSelection()
                     highlightStore.tappedHighlight = nil
                     definitionViewModel.dismiss()
+                    pendingHighlightSelection = nil
                 } else {
                     updateMenuPosition(from: point, in: pv)
                 }
+            },
+            onHighlightRequested: { selection in
+                pendingHighlightSelection = selection
+                // Position the color picker above the selection
+                if let pv = pdfView,
+                   let page = selection.pages.first {
+                    let bounds = selection.bounds(for: page)
+                    let topMid = CGPoint(x: bounds.midX, y: bounds.maxY)
+                    let inView = pv.convert(topMid, from: page)
+                    if let window = pv.window,
+                       let scene = window.windowScene {
+                        let inWindow = pv.convert(inView, to: window)
+                        let statusBarHeight = scene.statusBarManager?.statusBarFrame.height ?? 0
+                        highlightMenuPosition = CGPoint(
+                            x: inWindow.x,
+                            y: inWindow.y - statusBarHeight - 50
+                        )
+                    }
+                }
+            },
+            onAddNoteRequested: { selection in
+                addNote(from: selection)
+            },
+            onDefineRequested: { text in
+                clearSelection()
+                definitionViewModel.lookup(
+                    word: text.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
             }
         )
         .ignoresSafeArea()
     }
 
-    // MARK: - Selection menu
+    // MARK: - Highlight color picker
 
-    private var selectionMenu: some View {
-        SelectionMenuView(
-            selectedText: selectedText,
-            onColorSelected: { color in
-                guard let selection = currentSelection else { return }
-                highlightStore.addHighlight(
-                    selection: selection,
-                    color: color,
-                    context: context
-                )
-                clearSelection()
-            },
-            onDefine: {
-                let word = selectedText
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                clearSelection()
-                definitionViewModel.lookup(word: word)
-            },
-            onDismiss: {
-                clearSelection()
+    private var highlightColorPicker: some View {
+        HStack(spacing: 0) {
+            ForEach(HighlightColor.allCases, id: \.self) { color in
+                Button {
+                    applyHighlight(color)
+                } label: {
+                    Circle()
+                        .fill(color.color)
+                        .frame(width: 26, height: 26)
+                        .overlay(
+                            Circle()
+                                .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
+                        )
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.plain)
             }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: Radius.md)
+                .fill(.regularMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Radius.md)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
         )
-        .position(x: menuPosition.x, y: menuPosition.y)
+        .shadow(color: .black.opacity(0.10), radius: 12, x: 0, y: 3)
+        .position(
+            x: min(
+                max(highlightMenuPosition.x, 90),
+                UIScreen.main.bounds.width - 90
+            ),
+            y: highlightMenuPosition.y
+        )
         .transition(.opacity.combined(with: .scale(scale: 0.9)))
-        .animation(.spring(duration: 0.2), value: currentSelection != nil)
+        .animation(AppAnimation.snappy, value: pendingHighlightSelection != nil)
         .zIndex(10)
     }
 
     // MARK: - Definition overlay
 
     private var definitionOverlay: some View {
-        // Dimmed background tap to dismiss
         ZStack(alignment: .bottom) {
             Color.black.opacity(0.01)
                 .ignoresSafeArea()
@@ -244,7 +298,7 @@ struct ReaderView: View {
         return min(max(menuPosition.x, halfWidth + 8), screenWidth - halfWidth - 8)
     }
 
-    // MARK: - Chrome
+    // MARK: - Chrome overlay
 
     private var chromeOverlay: some View {
         VStack(spacing: 0) {
@@ -268,6 +322,9 @@ struct ReaderView: View {
                 onSearchTap: {
                     viewModel.isSearchPresented = true
                 },
+                onAnnotationsTap: {
+                    showAnnotationSidebar = true
+                },
                 onMoreTap: {
                     showBookmarkPanel = true
                 }
@@ -281,7 +338,7 @@ struct ReaderView: View {
                 totalPages: max(viewModel.totalPages, 1),
                 progress: progressFraction,
                 onPrevious: { viewModel.goToPreviousPage() },
-                onNext:     { viewModel.goToNextPage() },
+                onNext: { viewModel.goToNextPage() },
                 onScrub: { fraction in
                     let target = Int(fraction * Double(max(viewModel.totalPages - 1, 0)))
                     viewModel.goToPage(target)
@@ -374,7 +431,7 @@ struct ReaderView: View {
         .presentationDragIndicator(.visible)
     }
 
-    // MARK: - Loading
+    // MARK: - Loading view
 
     private var loadingView: some View {
         VStack(spacing: 16) {
@@ -396,20 +453,9 @@ struct ReaderView: View {
     private func handleSelectionChanged(_ selection: PDFSelection?) {
         guard let selection, let text = selection.string, !text.isEmpty else {
             currentSelection = nil
-            selectedText = ""
             return
         }
         currentSelection = selection
-        selectedText = text
-
-        guard let pv = pdfView,
-              let page = selection.pages.first
-        else { return }
-
-        let bounds = selection.bounds(for: page)
-        let topMid = CGPoint(x: bounds.midX, y: bounds.maxY)
-        let inView = pv.convert(topMid, from: page)
-        updateMenuPosition(from: inView, in: pv)
     }
 
     private func updateMenuPosition(from point: CGPoint, in pv: PDFView) {
@@ -417,7 +463,10 @@ struct ReaderView: View {
            let scene = window.windowScene {
             let inWindow = pv.convert(point, to: window)
             let statusBarHeight = scene.statusBarManager?.statusBarFrame.height ?? 0
-            menuPosition = CGPoint(x: inWindow.x, y: inWindow.y - statusBarHeight - 50)
+            menuPosition = CGPoint(
+                x: inWindow.x,
+                y: inWindow.y - statusBarHeight - 50
+            )
         } else {
             menuPosition = CGPoint(x: point.x, y: point.y - 50)
         }
@@ -426,7 +475,27 @@ struct ReaderView: View {
     private func clearSelection() {
         pdfView?.clearSelection()
         currentSelection = nil
-        selectedText = ""
+        pendingHighlightSelection = nil
+    }
+
+    private func applyHighlight(_ color: HighlightColor) {
+        guard let selection = pendingHighlightSelection else { return }
+        _ = highlightStore.addHighlight(
+            selection: selection,
+            color: color,
+            context: context
+        )
+        clearSelection()
+    }
+
+    private func addNote(from selection: PDFSelection) {
+        let created = highlightStore.addHighlight(
+            selection: selection,
+            color: .yellow,
+            context: context
+        )
+        clearSelection()
+        noteEditorTarget = created.first
     }
 
     private func loadDocument() {

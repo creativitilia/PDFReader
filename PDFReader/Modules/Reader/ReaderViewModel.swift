@@ -10,6 +10,10 @@ final class ReaderViewModel {
     var isChromeVisible: Bool = true
     var isSearchPresented: Bool = false
 
+    /// When true, the auto-hide timer is suspended.
+    /// Set this whenever any popup or sheet is active.
+    var suppressChromeHide: Bool = false
+
     private var hideTask: Task<Void, Never>?
 
     init(document: Document) {
@@ -45,11 +49,19 @@ final class ReaderViewModel {
         scheduleHide()
     }
 
+    func keepChromeVisible() {
+        hideTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isChromeVisible = true
+        }
+    }
+
     private func scheduleHide() {
         hideTask?.cancel()
+        guard !suppressChromeHide else { return }
         hideTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(3))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !self.suppressChromeHide else { return }
             withAnimation(.easeInOut(duration: 0.3)) {
                 self.isChromeVisible = false
             }
@@ -60,15 +72,11 @@ final class ReaderViewModel {
         hideTask?.cancel()
     }
 
-    /// Navigates to a search result and highlights the match on the PDFView.
     func navigate(to result: SearchResult, in pdfView: PDFView?) {
         guard let pdfView else { return }
         goToPage(result.pageIndex)
-        // Set the selection so PDFKit highlights it in its native blue
         pdfView.setCurrentSelection(result.selection, animate: true)
-        // Scroll so the match is visible
         pdfView.go(to: result.selection)
-        // Show chrome so the user sees the context
         showChromeTemporarily()
     }
 
